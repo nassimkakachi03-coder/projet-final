@@ -29,3 +29,23 @@ export const markAllAsRead = async (req: Request, res: Response, next: NextFunct
     next(error);
   }
 };
+
+export const deleteNotification = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const notification = await Notification.findByIdAndDelete(id);
+    if (!notification) return res.status(404).json({ message: 'Notification introuvable' });
+    return res.status(200).json({ message: 'Notification supprimée' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteAllNotifications = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    await Notification.deleteMany({});
+    return res.status(200).json({ message: 'Toutes les notifications ont été supprimées' });
+  } catch (error) {
+    next(error);
+  }
+};

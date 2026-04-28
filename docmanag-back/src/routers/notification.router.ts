@@ -9,6 +9,8 @@ router.use(authenticate, authorize('Admin', 'SuperAdmin', 'Doctor', 'Secretary')
 
 router.get('/', notificationHandler.getNotifications);
 router.put('/read-all', notificationHandler.markAllAsRead);
+router.delete('/all', notificationHandler.deleteAllNotifications);
 router.put('/:id/read', notificationHandler.markAsRead);
+router.delete('/:id', notificationHandler.deleteNotification);
 
 export default router;

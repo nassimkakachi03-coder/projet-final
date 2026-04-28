@@ -12,6 +12,7 @@ import {
   Package,
   Stethoscope,
   Wallet,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -63,6 +64,32 @@ export default function AdminLayout() {
       );
       setNotifications(notifications.map((notification) => (notification._id === id ? { ...notification, read: true } : notification)));
       setUnreadCount((current) => Math.max(0, current - 1));
+    } catch {}
+  };
+
+  const deleteAllNotifications = async () => {
+    if (!confirm("Voulez-vous vraiment effacer toutes les notifications ?")) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(
+        `${import.meta.env.VITE_API_URL}/notifications/all`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setNotifications([]);
+      setUnreadCount(0);
+    } catch {}
+  };
+
+  const deleteNotification = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(
+        `${import.meta.env.VITE_API_URL}/notifications/${id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setNotifications(notifications.filter((n) => n._id !== id));
+      setUnreadCount(notifications.filter((n) => n._id !== id && !n.read).length);
     } catch {}
   };
 
@@ -149,11 +176,18 @@ export default function AdminLayout() {
                   <div className="absolute right-0 z-50 mt-3 w-80 overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-2xl sm:w-96">
                     <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 p-4">
                       <h3 className="font-black text-slate-900">Notifications</h3>
-                      {unreadCount > 0 && (
-                        <button onClick={markAllAsRead} className="text-xs font-bold text-teal-600 hover:underline">
-                          Tout marquer comme lu
-                        </button>
-                      )}
+                      <div className="flex gap-3">
+                        {unreadCount > 0 && (
+                          <button onClick={markAllAsRead} className="text-xs font-bold text-teal-600 hover:underline">
+                            Tout marquer comme lu
+                          </button>
+                        )}
+                        {notifications.length > 0 && (
+                          <button onClick={deleteAllNotifications} className="text-xs font-bold text-red-600 hover:underline">
+                            Tout effacer
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="max-h-96 overflow-y-auto">
                       {notifications.length === 0 ? (
@@ -172,7 +206,7 @@ export default function AdminLayout() {
                             }`}
                           >
                             <div className={`mt-0.5 h-2 w-2 flex-shrink-0 rounded-full ${!notification.read ? 'bg-teal-500' : 'bg-transparent'}`} />
-                            <div>
+                            <div className="flex-1">
                               <p className={`text-sm ${!notification.read ? 'font-black text-slate-900' : 'font-semibold text-slate-700'}`}>
                                 {notification.title}
                               </p>
@@ -181,6 +215,13 @@ export default function AdminLayout() {
                                 {new Date(notification.createdAt).toLocaleDateString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                               </p>
                             </div>
+                            <button 
+                              onClick={(e) => deleteNotification(e, notification._id)}
+                              className="ml-2 p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors"
+                              title="Effacer"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
                           </div>
                         ))
                       )}
