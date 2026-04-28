@@ -21,7 +21,7 @@ export default function WeeklyCalendar({ selectedDate, onSelect, reason, takenSl
 
   const isOrthodontic = reason.toLowerCase().includes('orthodont') || reason.toLowerCase().includes('orthodent');
 
-  const { startOfWeek, days } = useMemo(() => {
+  const { days } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay(); // 0 = Sun, 6 = Sat
@@ -39,7 +39,7 @@ export default function WeeklyCalendar({ selectedDate, onSelect, reason, takenSl
       d.push(current);
     }
 
-    return { startOfWeek: start, days: d };
+    return { days: d };
   }, [weekOffset]);
 
   const nextWeek = () => setWeekOffset(prev => prev + 1);
@@ -60,7 +60,6 @@ export default function WeeklyCalendar({ selectedDate, onSelect, reason, takenSl
     }
 
     // Check taken
-    const slotTimeStr = slotTime.toISOString();
     const isTaken = takenSlots.some(t => {
       const tDate = new Date(t);
       return Math.abs(tDate.getTime() - slotTime.getTime()) < 60000; // within 1 min

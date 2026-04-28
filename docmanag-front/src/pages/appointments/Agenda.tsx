@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
-  ArrowUpDown,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -10,12 +9,10 @@ import {
   Clock3,
   Pencil,
   Plus,
-  Search,
   Trash2,
   UserRound,
 } from 'lucide-react';
 import Modal from '../../components/Modal';
-import Pagination from '../../components/Pagination';
 import { useAuth } from '../../contexts/AuthContext';
 import { Link } from 'react-router';
 
@@ -62,23 +59,19 @@ const statusStyles: Record<string, string> = {
   Cancelled: 'bg-red-50 text-red-700 border-red-200',
 };
 
-type SortKey = 'date' | 'patientName' | 'reason' | 'status';
-type SortDir = 'asc' | 'desc';
-
 export default function Agenda() {
   const { token, user } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
-  const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [weekOffset, setWeekOffset] = useState(0);
 
-  const { startOfWeek, weekDays } = useMemo(() => {
+  const { weekDays } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const dayOfWeek = today.getDay(); // 0 = Sun, 6 = Sat
@@ -92,7 +85,7 @@ export default function Agenda() {
       current.setDate(start.getDate() + i);
       d.push(current);
     }
-    return { startOfWeek: start, weekDays: d };
+    return { weekDays: d };
   }, [weekOffset]);
 
   const fetchData = async () => {

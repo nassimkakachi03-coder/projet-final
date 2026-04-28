@@ -106,7 +106,7 @@ export default function PatientPortal() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'timeline' | 'prescriptions' | 'billing' | 'profile'>('timeline');
+  const [activeTab, setActiveTab] = useState<'timeline' | 'appointments' | 'prescriptions' | 'billing' | 'profile'>('timeline');
 
   const [showRdv, setShowRdv] = useState(false);
   const [rdvForm, setRdvForm] = useState({ date: '', reason: '', notes: '' });
