@@ -4,6 +4,8 @@ import {
   ArrowUpDown,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   Clock3,
   Pencil,
@@ -15,6 +17,7 @@ import {
 import Modal from '../../components/Modal';
 import Pagination from '../../components/Pagination';
 import { useAuth } from '../../contexts/AuthContext';
+import { Link } from 'react-router';
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -73,10 +76,24 @@ export default function Agenda() {
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [sortKey, setSortKey] = useState<SortKey>('date');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const itemsPerPage = 10;
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  const { startOfWeek, weekDays } = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay(); // 0 = Sun, 6 = Sat
+    const diffToSat = dayOfWeek === 6 ? 0 : dayOfWeek + 1;
+    const start = new Date(today);
+    start.setDate(today.getDate() - diffToSat + (weekOffset * 7));
+
+    const d = [];
+    for (let i = 0; i < 6; i++) {
+      const current = new Date(start);
+      current.setDate(start.getDate() + i);
+      d.push(current);
+    }
+    return { startOfWeek: start, weekDays: d };
+  }, [weekOffset]);
 
   const fetchData = async () => {
     try {
@@ -91,43 +108,15 @@ export default function Agenda() {
 
   useEffect(() => { if (token) void fetchData(); }, [token]);
 
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('asc'); }
-  };
-
-  const SortIcon = ({ col }: { col: SortKey }) => (
-    <ArrowUpDown className={`inline h-3 w-3 ml-1 ${sortKey === col ? 'text-teal-600' : 'text-slate-400'}`} />
-  );
-
-  const filteredSortedAppointments = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    let list = query
-      ? appointments.filter(a =>
-          [a.patientName, a.patientId?.firstName, a.patientId?.lastName, a.reason, a.notes]
-            .filter(Boolean).join(' ').toLowerCase().includes(query)
-        )
-      : [...appointments];
-
-    list.sort((a, b) => {
-      let va: any, vb: any;
-      if (sortKey === 'date') { va = new Date(a.date).getTime(); vb = new Date(b.date).getTime(); }
-      else if (sortKey === 'patientName') { va = (a.patientName || '').toLowerCase(); vb = (b.patientName || '').toLowerCase(); }
-      else if (sortKey === 'reason') { va = (a.reason || '').toLowerCase(); vb = (b.reason || '').toLowerCase(); }
-      else { va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
+  const weekAppointments = useMemo(() => {
+    const filtered = appointments.filter(a => {
+      const d = new Date(a.date);
+      d.setHours(0, 0, 0, 0);
+      return d >= weekDays[0] && d <= weekDays[5];
     });
-    return list;
-  }, [appointments, search, sortKey, sortDir]);
-
-  useEffect(() => { setCurrentPage(1); }, [search, sortKey, sortDir]);
-
-  const paginatedAppointments = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredSortedAppointments.slice(start, start + itemsPerPage);
-  }, [filteredSortedAppointments, currentPage]);
+    filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return filtered;
+  }, [appointments, weekDays]);
 
   const todayAppointments = useMemo(() => {
     const today = new Date().toDateString();
@@ -233,71 +222,102 @@ export default function Agenda() {
         ))}
       </section>
 
-      <section className="rounded-[30px] border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-black text-slate-900">Planning des rendez-vous</h2>
-          </div>
-          <div className="relative w-full max-w-md">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un rendez-vous..."
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10" />
+      <section className="rounded-[30px] border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between bg-slate-50">
+          <h2 className="text-lg font-black text-slate-900">Programme de la semaine</h2>
+          <div className="flex items-center gap-4 bg-white rounded-2xl border border-slate-200 p-1.5 shadow-sm">
+            <button onClick={() => setWeekOffset(prev => prev - 1)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className="text-sm font-bold text-slate-700 px-2">
+              Du {weekDays[0].toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} au {weekDays[5].toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+            <button onClick={() => setWeekOffset(prev => prev + 1)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-600 transition">
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead className="bg-slate-50">
-              <tr className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-                <th className="cursor-pointer px-5 py-4" onClick={() => handleSort('date')}>Date <SortIcon col="date" /></th>
-                <th className="cursor-pointer px-5 py-4" onClick={() => handleSort('patientName')}>Patient <SortIcon col="patientName" /></th>
-                <th className="cursor-pointer px-5 py-4" onClick={() => handleSort('reason')}>Motif <SortIcon col="reason" /></th>
-                <th className="cursor-pointer px-5 py-4" onClick={() => handleSort('status')}>Statut <SortIcon col="status" /></th>
-                <th className="px-5 py-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedAppointments.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-16 text-center text-sm font-medium text-slate-400">
-                  {search ? `Aucun rendez-vous pour « ${search} ».` : 'Aucun rendez-vous planifié.'}
-                </td></tr>
-              ) : paginatedAppointments.map(appointment => (
-                <tr key={appointment._id} className="border-t border-slate-100">
-                  <td className="px-5 py-4 text-sm font-semibold text-slate-900">
-                    {new Date(appointment.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-700">
-                    {appointment.patientName || `${appointment.patientId?.firstName || ''} ${appointment.patientId?.lastName || ''}`}
-                  </td>
-                  <td className="px-5 py-4 text-sm text-slate-600">
-                    <p className="font-semibold text-slate-900">{appointment.reason}</p>
-                    <p className="mt-1 text-xs text-slate-500">{appointment.notes || 'Sans note'}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <button onClick={() => toggleStatus(appointment)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition hover:opacity-80 ${statusStyles[appointment.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                      {['EnCours', 'Scheduled', 'Pending'].includes(appointment.status)
-                        ? <Circle className="h-3 w-3" />
-                        : <CheckCircle2 className="h-3 w-3" />}
-                      {statusLabels[appointment.status] || appointment.status}
-                    </button>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => openEditModal(appointment)} className="rounded-xl bg-blue-50 p-2 text-blue-600 transition hover:bg-blue-100">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => removeAppointment(appointment._id)} className="rounded-xl bg-red-50 p-2 text-red-600 transition hover:bg-red-100">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="p-5 space-y-8">
+          {weekDays.filter(d => {
+            const endOfDay = new Date(d);
+            endOfDay.setHours(23, 59, 59, 999);
+            return endOfDay >= new Date();
+          }).map((day, i) => {
+            const dayAppts = weekAppointments.filter(a => new Date(a.date).toDateString() === day.toDateString());
+            
+            return (
+              <div key={i} className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                  <h3 className="text-base font-black text-slate-800 capitalize">{day.toLocaleDateString('fr-FR', { weekday: 'long' })}</h3>
+                  <span className="text-sm font-bold text-slate-400">{day.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                  <span className="ml-auto text-xs font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full">{dayAppts.length} RDV</span>
+                </div>
+
+                {dayAppts.length === 0 ? (
+                  <p className="text-sm font-medium italic text-slate-400 bg-slate-50 py-4 px-5 rounded-2xl border border-slate-100">
+                    Aucun rendez-vous prévu ce jour.
+                  </p>
+                ) : (
+                  <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide snap-x">
+                    {dayAppts.map(appointment => (
+                      <div key={appointment._id} className="min-w-[280px] sm:min-w-[320px] shrink-0 snap-start rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md hover:border-slate-300">
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-sm font-black text-slate-900 bg-slate-100 px-3 py-1.5 rounded-xl">
+                            {new Date(appointment.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <button onClick={() => toggleStatus(appointment)} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold transition hover:opacity-80 ${statusStyles[appointment.status] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                            {['EnCours', 'Scheduled', 'Pending'].includes(appointment.status) ? <Circle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                            {statusLabels[appointment.status] || appointment.status}
+                          </button>
+                        </div>
+                        
+                        <div className="mb-4">
+                          {appointment.patientId ? (
+                            <Link 
+                              to={`/patients/${appointment.patientId._id || appointment.patientId}/history`}
+                              className="text-base font-black text-teal-700 hover:underline flex items-center gap-2"
+                            >
+                              <UserRound className="h-5 w-5" />
+                              {appointment.patientName || `${appointment.patientId?.firstName || ''} ${appointment.patientId?.lastName || ''}`}
+                            </Link>
+                          ) : (
+                            <span className="text-base font-black text-slate-700 flex items-center gap-2">
+                              <UserRound className="h-5 w-5" />
+                              {appointment.patientName || 'Inconnu'}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-start justify-between gap-3 border-t border-slate-100 pt-4">
+                          <div>
+                            <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
+                              appointment.reason.toLowerCase().includes('orthodon') || appointment.reason.toLowerCase().includes('orthoden')
+                                ? 'bg-green-100 text-green-700 border border-green-200'
+                                : 'bg-blue-100 text-blue-700 border border-blue-200'
+                            }`}>
+                              {appointment.reason}
+                            </span>
+                            {appointment.notes && <p className="mt-2 text-xs leading-relaxed text-slate-500 line-clamp-2">{appointment.notes}</p>}
+                          </div>
+                          
+                          <div className="flex shrink-0 gap-1.5">
+                            <button onClick={() => openEditModal(appointment)} className="rounded-xl bg-blue-50 p-2 text-blue-600 transition hover:bg-blue-100">
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => removeAppointment(appointment._id)} className="rounded-xl bg-red-50 p-2 text-red-600 transition hover:bg-red-100">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-        <Pagination currentPage={currentPage} totalItems={filteredSortedAppointments.length} itemsPerPage={itemsPerPage} onPageChange={setCurrentPage} />
       </section>
 
       <Modal isOpen={modalOpen} onClose={closeModal} title={editing ? 'Modifier le rendez-vous' : 'Nouveau rendez-vous'} size="lg">

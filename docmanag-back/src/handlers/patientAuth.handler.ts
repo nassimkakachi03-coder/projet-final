@@ -167,6 +167,15 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       return res.status(400).json({ message: 'La date et le motif sont requis.' });
     }
 
+    const existingAppointment = await Appointment.findOne({
+      patientId: account.patientId,
+      status: { $in: ['EnCours', 'Scheduled', 'Pending'] }
+    });
+
+    if (existingAppointment) {
+      return res.status(400).json({ message: 'Vous avez deja un rendez-vous en cours. Veuillez attendre qu\'il soit termine ou l\'annuler avant d\'en prendre un nouveau.' });
+    }
+
     const appointmentDate = new Date(date);
     const slotError = validatePatientAppointmentSlot(appointmentDate, reason);
     if (slotError) {
@@ -241,6 +250,80 @@ export const updateMedicalProfile = async (req: Request, res: Response, next: Ne
         prescriptionUrl: patient.prescriptionUrl,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAppointments = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const authReq = req as any;
+    if (authReq.user?.role !== 'Patient') {
+      return res.status(403).json({ message: 'Acces refuse.' });
+    }
+
+    const now = new Date();
+    // Only return date field
+    const appointments = await Appointment.find({ date: { $gte: now } }).select('date');
+
+    return res.status(200).json(appointments);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateAppointment = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const authReq = req as any;
+    if (authReq.user?.role !== 'Patient') return res.status(403).json({ message: 'Acces refuse.' });
+
+    const account = await PatientAccount.findById(authReq.user?.id);
+    if (!account) return res.status(404).json({ message: 'Compte non trouve.' });
+
+    const { date, reason, notes } = req.body;
+    if (!date || !reason) return res.status(400).json({ message: 'La date et le motif sont requis.' });
+
+    const appointmentDate = new Date(date);
+    const slotError = validatePatientAppointmentSlot(appointmentDate, reason);
+    if (slotError) return res.status(400).json({ message: slotError });
+
+    const apptId = req.params.id;
+    const appointment = await Appointment.findOne({ _id: apptId, patientId: account.patientId });
+    if (!appointment) return res.status(404).json({ message: 'Rendez-vous non trouve.' });
+
+    if (!['EnCours', 'Scheduled', 'Pending'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Impossible de modifier ce rendez-vous car il est deja termine ou annule.' });
+    }
+
+    appointment.date = appointmentDate;
+    appointment.reason = reason.trim();
+    appointment.notes = notes?.trim() || appointment.notes;
+    await appointment.save();
+
+    return res.status(200).json({ message: 'Rendez-vous modifie avec succes.', appointment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteAppointment = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  try {
+    const authReq = req as any;
+    if (authReq.user?.role !== 'Patient') return res.status(403).json({ message: 'Acces refuse.' });
+
+    const account = await PatientAccount.findById(authReq.user?.id);
+    if (!account) return res.status(404).json({ message: 'Compte non trouve.' });
+
+    const apptId = req.params.id;
+    const appointment = await Appointment.findOne({ _id: apptId, patientId: account.patientId });
+    if (!appointment) return res.status(404).json({ message: 'Rendez-vous non trouve.' });
+
+    if (!['EnCours', 'Scheduled', 'Pending'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Impossible d\'annuler ce rendez-vous.' });
+    }
+
+    await appointment.deleteOne();
+    return res.status(200).json({ message: 'Rendez-vous annule avec succes.' });
   } catch (error) {
     next(error);
   }

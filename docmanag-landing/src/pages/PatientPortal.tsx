@@ -13,6 +13,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
+import WeeklyCalendar from '../components/WeeklyCalendar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -111,8 +112,10 @@ export default function PatientPortal() {
   const [rdvForm, setRdvForm] = useState({ date: '', reason: '', notes: '' });
   const [rdvOtherReason, setRdvOtherReason] = useState('');
   const [rdvLoading, setRdvLoading] = useState(false);
-  const [rdvMsg, setRdvMsg] = useState('');
   const [rdvError, setRdvError] = useState('');
+  const [rdvMsg, setRdvMsg] = useState('');
+  const [editingAppt, setEditingAppt] = useState<any>(null);
+  const [takenSlots, setTakenSlots] = useState<string[]>([]);
 
   const [profileForm, setProfileForm] = useState({ medicalHistory: '', xRayUrl: '', prescriptionUrl: '' });
   const [profileLoading, setProfileLoading] = useState(false);
@@ -130,14 +133,22 @@ export default function PatientPortal() {
       }
 
       try {
-        const response = await axios.get(`${API_URL}/patient-auth/me/history`, { headers });
-        setData(response.data);
-        if (response.data?.patient) {
+        const [historyRes, apptRes] = await Promise.all([
+          axios.get(`${API_URL}/patient-auth/me/history`, { headers }),
+          axios.get(`${API_URL}/patient-auth/appointments`, { headers })
+        ]);
+        
+        setData(historyRes.data);
+        if (historyRes.data?.patient) {
           setProfileForm({
-            medicalHistory: response.data.patient.medicalHistory || '',
-            xRayUrl: response.data.patient.xRayUrl || '',
-            prescriptionUrl: response.data.patient.prescriptionUrl || '',
+            medicalHistory: historyRes.data.patient.medicalHistory || '',
+            xRayUrl: historyRes.data.patient.xRayUrl || '',
+            prescriptionUrl: historyRes.data.patient.prescriptionUrl || '',
           });
+        }
+        
+        if (Array.isArray(apptRes.data)) {
+          setTakenSlots(apptRes.data.map((a: any) => a.date));
         }
       } catch (requestError: any) {
         if (requestError.response?.status === 401) {
@@ -178,6 +189,33 @@ export default function PatientPortal() {
     [stats]
   );
 
+  const activeAppointments = useMemo(() => {
+    return careTimeline.filter((item: any) => 
+      item.type === 'appointment' && ['EnCours', 'Scheduled', 'Pending'].includes(item.status)
+    );
+  }, [careTimeline]);
+
+  const hasActiveAppointment = activeAppointments.length > 0;
+
+  const historiqueItems = useMemo(() => {
+    return careTimeline.filter((item: any) => {
+      if (item.type === 'appointment') {
+        return !['EnCours', 'Scheduled', 'Pending'].includes(item.status);
+      }
+      return true;
+    });
+  }, [careTimeline]);
+
+  const filteredTakenSlots = useMemo(() => {
+    if (!editingAppt) return takenSlots;
+    try {
+      const editingDateStr = new Date(editingAppt.date).toISOString();
+      return takenSlots.filter(t => t !== editingDateStr);
+    } catch {
+      return takenSlots;
+    }
+  }, [takenSlots, editingAppt]);
+
   const finalRdvReason = rdvForm.reason === 'Autres' ? rdvOtherReason.trim() : rdvForm.reason;
   const slotValidationMessage = rdvForm.date && finalRdvReason ? validateAppointmentSlot(rdvForm.date, finalRdvReason) : '';
 
@@ -200,18 +238,52 @@ export default function PatientPortal() {
     }
 
     try {
-      await axios.post(`${API_URL}/patient-auth/appointment`, { ...rdvForm, reason: finalRdvReason }, { headers });
-      setRdvMsg('Rendez-vous cree. Le cabinet vous contactera pour confirmer.');
-      setRdvForm({ date: '', reason: '', notes: '' });
-      setRdvOtherReason('');
-      setTimeout(() => {
-        setShowRdv(false);
-        setRdvMsg('');
-      }, 2500);
+      if (editingAppt) {
+        await axios.put(`${API_URL}/patient-auth/appointment/${editingAppt.id}`, { ...rdvForm, reason: finalRdvReason }, { headers });
+        setRdvMsg('Rendez-vous modifié avec succès.');
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        await axios.post(`${API_URL}/patient-auth/appointment`, { ...rdvForm, reason: finalRdvReason }, { headers });
+        setRdvMsg('Rendez-vous cree. Le cabinet vous contactera pour confirmer.');
+        setRdvForm({ date: '', reason: '', notes: '' });
+        setRdvOtherReason('');
+        
+        const newTakenDate = new Date(rdvForm.date).toISOString();
+        setTakenSlots(prev => [...prev, newTakenDate]);
+
+        setTimeout(() => {
+          setShowRdv(false);
+          setRdvMsg('');
+          window.location.reload();
+        }, 1500);
+      }
     } catch (requestError: any) {
-      setRdvError(requestError.response?.data?.message || 'Erreur lors de la creation du rendez-vous.');
+      setRdvError(requestError.response?.data?.message || 'Erreur lors de l\'operation.');
     } finally {
       setRdvLoading(false);
+    }
+  };
+
+  const openEditModal = (item: any) => {
+    const reasonRaw = item.label.replace('Rendez-vous : ', '').trim();
+    const isOther = !MOTIFS.includes(reasonRaw as any);
+    setRdvForm({
+      date: item.date,
+      reason: isOther ? 'Autres' : reasonRaw,
+      notes: item.note || ''
+    });
+    setRdvOtherReason(isOther ? reasonRaw : '');
+    setEditingAppt(item);
+    setShowRdv(true);
+  };
+
+  const cancelAppointment = async (id: string) => {
+    if (!confirm('Voulez-vous vraiment annuler ce rendez-vous ?')) return;
+    try {
+      await axios.delete(`${API_URL}/patient-auth/appointment/${id}`, { headers });
+      window.location.reload();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Erreur lors de l\'annulation');
     }
   };
 
@@ -322,28 +394,53 @@ export default function PatientPortal() {
         </section>
 
         {showRdv && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowRdv(false)}>
-            <div className="w-full max-w-lg rounded-[28px] bg-white p-6 shadow-2xl sm:p-8" onClick={(event) => event.stopPropagation()}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setShowRdv(false); setEditingAppt(null); }}>
+            <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto custom-scrollbar rounded-[28px] bg-white p-6 shadow-2xl sm:p-8" onClick={(event) => event.stopPropagation()}>
               <div className="mb-5 flex items-center justify-between">
-                <h2 className="text-xl font-black text-slate-900">Prendre rendez-vous</h2>
-                <button onClick={() => setShowRdv(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+                <h2 className="text-xl font-black text-slate-900">{editingAppt ? 'Modifier le rendez-vous' : 'Prendre rendez-vous'}</h2>
+                <button onClick={() => { setShowRdv(false); setEditingAppt(null); }} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              {rdvMsg && <div className="mb-4 rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-700">{rdvMsg}</div>}
-              {rdvError && <div className="mb-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{rdvError}</div>}
-              <form onSubmit={handleRdv} className="space-y-4">
+
+              {hasActiveAppointment && !editingAppt ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                    <CalendarDays className="h-7 w-7" />
+                  </div>
+                  <h3 className="text-lg font-black text-amber-900">Rendez-vous déjà en cours</h3>
+                  <p className="mt-3 text-sm font-medium text-amber-700 leading-relaxed">
+                    Vous avez déjà un rendez-vous planifié. Veuillez attendre que celui-ci soit terminé ou l'annuler depuis l'onglet Rendez-vous avant d'en prendre un nouveau.
+                  </p>
+                  <button onClick={() => { setShowRdv(false); setEditingAppt(null); }} className="mt-6 w-full rounded-2xl bg-amber-600 px-5 py-3.5 text-sm font-bold text-white transition hover:bg-amber-700">
+                    Fermer
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {rdvMsg && <div className="mb-4 rounded-2xl bg-teal-50 p-3 text-sm font-bold text-teal-700">{rdvMsg}</div>}
+                  {rdvError && <div className="mb-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{rdvError}</div>}
+                  <form onSubmit={handleRdv} className="space-y-4">
+                {/* Weekly Calendar Display instead of date input */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-semibold text-slate-700">Date et heure *</label>
-                  <input
-                    required
-                    type="datetime-local"
-                    step={1800}
-                    value={rdvForm.date}
-                    onChange={(event) => setRdvForm({ ...rdvForm, date: event.target.value })}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
-                  />
-                  <p className="text-xs text-slate-500">Disponible du samedi au jeudi, de 10h00 a 18h00.</p>
+                  {!rdvForm.reason ? (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 text-center">
+                      Veuillez d'abord sélectionner un motif pour voir les horaires disponibles.
+                    </div>
+                  ) : (
+                    <WeeklyCalendar 
+                      selectedDate={rdvForm.date} 
+                      onSelect={(date) => setRdvForm({ ...rdvForm, date })} 
+                      reason={finalRdvReason} 
+                      takenSlots={filteredTakenSlots} 
+                    />
+                  )}
+                  {rdvForm.date && (
+                    <p className="text-sm font-bold text-teal-700 mt-2">
+                      Sélection : {new Date(rdvForm.date).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -403,7 +500,9 @@ export default function PatientPortal() {
                 <button type="submit" disabled={rdvLoading} className="w-full rounded-2xl bg-slate-900 px-5 py-3.5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-60">
                   {rdvLoading ? 'Envoi...' : 'Confirmer le rendez-vous'}
                 </button>
-              </form>
+                  </form>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -413,6 +512,7 @@ export default function PatientPortal() {
             <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3 sm:p-4">
               {([
                 { key: 'timeline', label: 'Historique' },
+                { key: 'appointments', label: 'Rendez-vous' },
                 { key: 'prescriptions', label: 'Ordonnances' },
                 { key: 'billing', label: 'Factures' },
                 { key: 'profile', label: 'Mon Dossier' },
@@ -432,10 +532,10 @@ export default function PatientPortal() {
             <div className="p-4 sm:p-5">
               {activeTab === 'timeline' && (
                 <div className="space-y-3">
-                  {careTimeline.length === 0 ? (
+                  {historiqueItems.length === 0 ? (
                     <p className="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">Aucun element d'historique pour le moment.</p>
                   ) : (
-                    careTimeline.map((item: any) => (
+                    historiqueItems.map((item: any) => (
                       <article key={`${item.type}-${item.id}`} className="rounded-[20px] border border-slate-200 p-4 sm:rounded-[26px]">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                           <div>
@@ -448,6 +548,45 @@ export default function PatientPortal() {
                               {new Date(item.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
                             </p>
                             {item.status && <p className="mt-1">{statusLabel(item.status)}</p>}
+                          </div>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'appointments' && (
+                <div className="space-y-3">
+                  {activeAppointments.length === 0 ? (
+                    <p className="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">Aucun rendez-vous prevu.</p>
+                  ) : (
+                    activeAppointments.map((item: any) => (
+                      <article key={`${item.type}-${item.id}`} className="rounded-[20px] border border-slate-200 p-4 sm:rounded-[26px]">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <CalendarDays className="h-4 w-4 text-teal-600" />
+                              <h2 className="text-sm font-black text-slate-900 sm:text-base">{item.label}</h2>
+                            </div>
+                            {item.note && <p className="text-sm text-slate-600">{item.note}</p>}
+                          </div>
+                          <div className="text-xs text-slate-500 sm:text-right sm:text-sm flex flex-col items-end">
+                            <p className="font-semibold text-slate-900 bg-slate-100 px-3 py-1 rounded-xl inline-block">
+                              {new Date(item.date).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </p>
+                            {item.status && <p className="mt-2 text-right">{statusLabel(item.status)}</p>}
+                            
+                            {['EnCours', 'Scheduled', 'Pending'].includes(item.status) && (
+                              <div className="flex items-center gap-2 mt-3">
+                                <button onClick={() => openEditModal(item)} className="px-3 py-1.5 bg-blue-50 text-blue-600 font-bold rounded-lg hover:bg-blue-100 transition text-xs">
+                                  Modifier
+                                </button>
+                                <button onClick={() => cancelAppointment(item.id)} className="px-3 py-1.5 bg-red-50 text-red-600 font-bold rounded-lg hover:bg-red-100 transition text-xs">
+                                  Annuler
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </article>
